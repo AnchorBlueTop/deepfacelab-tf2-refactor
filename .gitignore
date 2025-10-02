@@ -1,0 +1,128 @@
+# Python Environment & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Backup Files
+*.bak
+*.backup
+*.py.backup
+*.py.bak
+*.simplified
+*.fixed
+*— копия.py
+* — копия.py
+
+# VS Code / IDE
+.vscode/
+*.code-workspace
+
+# Logs & Debug
+console.txt
+test.py
+testkkkkk.py
+todo.txt
+
+# Git & GitHub (original DFL repo stuff)
+.github/
+
+# Documentation that came with original DFL
+CHANGELOG.md
+CODEGUIDELINES
+LICENSE
+_config.yml
+
+# Everything in parent directories we don't need
+../_internal/CUDA/
+../_internal/CUDNN/
+../_internal/python-3.6.8/
+../_internal/ffmpeg/
+../_internal/VSCode/
+../_internal/XnViewMP/
+../_internal/e/
+../_internal/pretrain_*/
+../_internal/model_generic_xseg/
+../*.bat
+../*.code-workspace
+
+# Model files & training data
+*.npy
+*.dat
+workspace/
+data_src/
+data_dst/
+
+# Directories we're not modifying at all
+DFLIMG/
+facelib/
+flaskr/
+localization/
+merger/
+utils/
+XSegEditor/
+
+# Requirements files (assume environment is known)
+requirements*.txt
+
+# Most of mainscripts except Trainer.py
+mainscripts/dev_misc.py
+mainscripts/ExportDFM.py
+mainscripts/Extractor.py
+mainscripts/FacesetEnhancer.py
+mainscripts/FacesetResizer.py
+mainscripts/Merger.py
+mainscripts/Sorter.py
+mainscripts/Util.py
+mainscripts/VideoEd.py
+mainscripts/XSegUtil.py
+
+# Core modules we didn't modify
+core/avx512/
+core/cv2ex.py
+core/avx512_mini.py
+core/imagelib/
+core/interact/
+core/joblib/
+core/mathlib/
+core/mplib/
+core/osex.py
+core/pathex.py
+core/qtex/
+core/randomex.py
+core/stdex.py
+core/structex.py
+core/memory_saving_gradients.py
+
+# Leras components we didn't significantly modify
+core/leras/device.py
+core/leras/initializers/
+core/leras/models/
+
+# Samplelib files we didn't modify
+samplelib/PackedFaceset.py
+samplelib/SampleGeneratorBase.py
+samplelib/SampleGeneratorFaceAvatarOperator.py
+samplelib/SampleGeneratorFaceCelebAMaskHQ.py
+samplelib/SampleGeneratorFaceDebug.py
+samplelib/SampleGeneratorFacePerson.py
+samplelib/SampleGeneratorFaceSkinSegDataset - Copy.py
+samplelib/SampleGeneratorFaceTemporal.py
+samplelib/SampleGeneratorFaceTest.py
+samplelib/SampleGeneratorFaceXSeg.py
+samplelib/SampleGeneratorImage.py
+samplelib/SampleGeneratorImageTemporal.py
+samplelib/SampleGeneratorSAE.py
+samplelib/SampleLoader.py
+
+# Specific optimizer we didn't modify
+core/leras/optimizers/AdaBelief.py
+
+# Model_SAEHD backup files
+models/Model_SAEHD/Model — копия.py
+models/Model_SAEHD/config_schema.json
+models/Model_SAEHD/formatted_config.yaml
+models/Model_SAEHD/gradient_checkpoint.py
+
+# Original DFL README (we'll write our own)
+README.md
