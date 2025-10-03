@@ -1,6 +1,6 @@
 # DeepFaceLab TensorFlow 2.x Migration: A Study in Framework Refactoring and VRAM Optimization
 
-A comprehensive refactoring of the DeepFaceLab MVE (Mod VAE Extended) training pipeline from TensorFlow 1.x compatibility mode to native TensorFlow 2.x architecture. This project successfully achieved significant VRAM reduction enabling substantially larger model configurations, though replicating the original implementation's nuanced training dynamics presented unexpected challenges.
+A comprehensive refactoring of the DeepFaceLab training pipeline from TensorFlow 1.x compatibility mode to native TensorFlow 2.x architecture. This project successfully achieved significant VRAM reduction enabling substantially larger model configurations, though replicating the original implementation's nuanced training dynamics presented unexpected challenges.
 
 ## Project Status
 
@@ -361,16 +361,12 @@ Potential paths for continued investigation:
 - Consider PyTorch migration for comparison of framework differences
 - Detailed profiling of original TF1 graph construction to identify subtle differences
 
-## Acknowledgments
-
-This project was developed through extensive experimentation and research conducted over several months. Development was assisted by AI tools (Google Gemini 2.5 Pro) for technical guidance, implementation suggestions, and debugging support.
-
 ## License
 
 This refactoring work is provided for educational and research purposes. Original DeepFaceLab framework maintains its original license terms.
 
 ---
 
-**Project Timeline:** Late 2023 - May 2024  
+**Project Timeline:** February 2025 - May 2025  
 **Hardware:** NVIDIA RTX 5090 (32GB), AMD Ryzen 9950X3D  
 **Development Approach:** Iterative refactoring with systematic debugging and comparative analysis
