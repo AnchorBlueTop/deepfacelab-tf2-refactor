@@ -147,7 +147,13 @@ The reasons for gradient checkpointing's ineffectiveness remain unclear - potent
 
 ### Debugging Journey Highlights
 
-**ConvolutionFull depth mismatch (`ValueError: Depth of input (X) is not a multiple of input depth of filter (Y)`)**
+**Import Resolution Errors**
+- Systematic debugging required to isolate circular imports and dependency issues
+- Module path resolution differences between TF1 and TF2 execution models
+- Resolved through careful restructuring of imports and explicit module initialization
+- Required one-by-one isolation of each import error to identify root causes
+
+**Convolution Depth Mismatch (`ValueError: Depth of input (X) is not a multiple of input depth of filter (Y)`)**
 - Most time-consuming issue encountered
 - Occurred with custom `Conv2D` layer despite correct Python-level shapes
 - Root cause: Incompatibility between TF1-style variable handling and TF2 graph op linking
@@ -183,11 +189,15 @@ This fundamental difference in Decoder output characteristics directly explained
 
 ### Development Timeline
 
-1. **Initial Phase (Late 2023):** Proof of concept, basic Keras layer migration
-2. **Core Refactoring (Early 2024):** Full pipeline migration, WScale implementation attempts
-3. **Debugging Phase (March-April 2024):** Extensive troubleshooting with AI assistance (Google Gemini 2.5 Pro)
-4. **Analysis Phase (May 2024):** Comparative analysis with original implementation
-5. **Decision Point (May 2024):** Pivot to enhancing original TF1 codebase
+1. **Conceptualization Phase (February 2024):** Initial research into gradient checkpointing techniques and TensorFlow 2.x capabilities for VRAM optimization
+2. **Planning Phase (March 2024):** Architecture design, mapping TF1 components to TF2 equivalents, identifying migration strategy
+3. **Development Phase (April 2024):** Core refactoring work with extensive debugging
+   - Systematic migration of custom layers to Keras architecture
+   - Resolution of import errors through systematic isolation and debugging
+   - Implementation of WScale layers and architectural components
+   - Integration with distributed training strategy
+4. **Analysis Phase (May 2024):** Comparative analysis with original TF1 implementation, instrumentation of both codebases
+5. **Decision Point (May 2024):** Pivot to enhancing original TF1 codebase after achieving VRAM goals but encountering training quality challenges
 
 ### Strategic Pivot Rationale
 
@@ -332,12 +342,13 @@ for iteration in range(target_iterations):
 - Additional dependencies typically bundled with DeepFaceLab distributions
 
 ### Basic Usage
+
+Run the training batch file:
 ```bash
-python main.py train
-# Follow interactive prompts for model configuration
+6) train SAEHD.bat
 ```
 
-Detailed configuration options maintained from original DFL (resolution, architecture type, loss functions, etc.).
+The batch file will launch the training script and present interactive prompts for model configuration including resolution, architecture type, loss functions, batch size, and other training parameters. Configuration options are maintained from the original DFL implementation.
 
 ## Lessons Learned
 
@@ -367,7 +378,20 @@ This project was developed through extensive experimentation and research conduc
 
 ## License
 
-This refactoring work is provided for educational and research purposes. Original DeepFaceLab framework maintains its original license terms.
+This refactoring work maintains the original DeepFaceLab license:
+
+**GNU General Public License v3.0 (GPLv3)**
+
+The original DeepFaceLab framework and this derivative refactoring work are licensed under the GNU General Public License version 3. This is a free, copyleft license that ensures:
+
+- Freedom to use, study, modify, and distribute the software
+- Any modifications or derivative works must also be distributed under GPLv3
+- Source code must be made available when distributing the software
+- Changes made to the code must be documented
+
+See the full license text at: https://www.gnu.org/licenses/gpl-3.0.html
+
+Original DeepFaceLab: Copyright (C) 2018-2020 Ivan Petrov, Petr Yaroshenko, and contributors
 
 ---
 
