@@ -123,6 +123,3 @@ models/Model_SAEHD/Model — копия.py
 models/Model_SAEHD/config_schema.json
 models/Model_SAEHD/formatted_config.yaml
 models/Model_SAEHD/gradient_checkpoint.py
-
-# Original DFL README (we'll write our own)
-README.md
