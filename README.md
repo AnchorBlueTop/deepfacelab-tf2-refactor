@@ -147,11 +147,24 @@ The reasons for gradient checkpointing's ineffectiveness remain unclear - potent
 
 ### Debugging Journey Highlights
 
-**Import Resolution Errors**
-- Systematic debugging required to isolate circular imports and dependency issues
-- Module path resolution differences between TF1 and TF2 execution models
-- Resolved through careful restructuring of imports and explicit module initialization
-- Required one-by-one isolation of each import error to identify root causes
+**Import Resolution Errors (Significant Challenge)**
+
+One of the most time-consuming debugging challenges involved resolving a cascade of import errors that emerged during the TF1 to TF2 migration:
+
+- **Circular Dependencies:** TF2's eager execution model and stricter module initialization requirements exposed circular import patterns that worked (by accident) in TF1's lazy graph construction
+- **Module Path Resolution:** Differences in how TF1 and TF2 handle Python module paths and relative imports caused numerous `ModuleNotFoundError` and `ImportError` exceptions
+- **Systematic Isolation Required:** Each import error had to be debugged individually by:
+  * Commenting out entire modules to isolate which imports were failing
+  * Tracing import chains through multiple levels of nested dependencies
+  * Testing import statements in isolation via Python REPL
+  * Restructuring import order and using explicit imports vs. wildcard imports
+- **Resolution Strategy:** Methodically refactored import structure through:
+  * Explicit module path declarations
+  * Breaking circular dependencies by moving shared utilities
+  * Initializing modules in specific order within package `__init__.py` files
+  * Converting relative imports to absolute where appropriate
+
+This debugging process took several days of dedicated effort as each fix would often reveal new downstream import conflicts. The experience demonstrated the importance of understanding Python's import system deeply when working with complex, interconnected codebases.
 
 **Convolution Depth Mismatch (`ValueError: Depth of input (X) is not a multiple of input depth of filter (Y)`)**
 - Most time-consuming issue encountered
@@ -189,15 +202,43 @@ This fundamental difference in Decoder output characteristics directly explained
 
 ### Development Timeline
 
-1. **Conceptualization Phase (February 2024):** Initial research into gradient checkpointing techniques and TensorFlow 2.x capabilities for VRAM optimization
-2. **Planning Phase (March 2024):** Architecture design, mapping TF1 components to TF2 equivalents, identifying migration strategy
-3. **Development Phase (April 2024):** Core refactoring work with extensive debugging
-   - Systematic migration of custom layers to Keras architecture
-   - Resolution of import errors through systematic isolation and debugging
-   - Implementation of WScale layers and architectural components
-   - Integration with distributed training strategy
-4. **Analysis Phase (May 2024):** Comparative analysis with original TF1 implementation, instrumentation of both codebases
-5. **Decision Point (May 2024):** Pivot to enhancing original TF1 codebase after achieving VRAM goals but encountering training quality challenges
+1. **Conceptualization Phase (February 2025):** 
+   - Initial investigation into gradient checkpointing as primary VRAM optimization technique
+   - Research into TensorFlow 2.x's `tf.recompute_grad` capabilities
+   - Analysis of original DFL codebase architecture and dependencies
+   - Feasibility assessment for framework migration
+
+2. **Planning Phase (March 2025):** 
+   - Comprehensive architecture design mapping TF1 components to TF2 equivalents
+   - Identified critical components requiring refactoring: layers, models, training loop, data pipeline
+   - Planned phased migration strategy to maintain functionality throughout development
+   - Documented expected challenges and mitigation approaches
+
+3. **Development & Debugging Phase (April 2025):** 
+   - Week 1-2: Core layer migration to Keras architecture
+     * Refactored base layers (Conv2D, Dense, Downscale, Upscale)
+     * Implemented WScale variants with equalized learning rate
+     * Built architectural components (Encoder, Inter, Decoder)
+   - Week 2-3: Training loop and distribution strategy implementation
+     * Converted session-based training to GradientTape
+     * Integrated MirroredStrategy for multi-GPU support
+     * Implemented checkpointing with tf.train.Checkpoint
+   - Week 3-4: Systematic debugging of complex technical issues
+     * **Import Resolution Challenges:** Spent significant time isolating circular dependencies and module path issues one by one
+     * Resolved layer compatibility and shape mismatch errors
+     * Fixed distribution strategy integration conflicts
+     * Debugged numerical stability issues (NaNs, gradient explosion)
+
+4. **Analysis Phase (May 2025):** 
+   - Comparative benchmarking with original TF1 implementation
+   - Instrumentation of both codebases to identify behavioral differences
+   - Detailed variance propagation analysis through network layers
+   - Documentation of findings and training quality disparities
+
+5. **Decision Point (May 2025):** 
+   - Pivot to enhancing original TF1 codebase after achieving VRAM goals but encountering training quality challenges
+   - Focus shifted to FP16 implementation and quality-of-life improvements in proven-stable TF1 version
+   - TF2 refactor retained as successful technical demonstration and learning experience
 
 ### Strategic Pivot Rationale
 
@@ -392,5 +433,6 @@ Original DeepFaceLab: Copyright (C) 2018-2020 Ivan Petrov, Petr Yaroshenko, and 
 ---
 
 **Project Timeline:** February 2025 - May 2025  
+**AI Assistance:** Google Gemini 2.5 Pro (March-April 2025)  
 **Hardware:** NVIDIA RTX 5090 (32GB), AMD Ryzen 9950X3D  
 **Development Approach:** Iterative refactoring with systematic debugging and comparative analysis
