@@ -4,7 +4,7 @@ A comprehensive refactoring of the DeepFaceLab MVE (Mod VAE Extended) training p
 
 ## Project Status
 
-**Achieved:** 60% VRAM reduction, enabling 3x resolution increase (352x352 → 640x640 at batch size 16)
+**Achieved:** 60% VRAM reduction, enabling 3x resolution increase (412x412 → 704x704 at batch size 16)
 
 **Challenge:** Training quality did not achieve parity with original TF1 implementation despite numerical stability
 
@@ -16,7 +16,7 @@ DeepFaceLab is a deep learning framework for facial reenactment and face swappin
 
 ### Initial Problem Statement
 
-Training on an NVIDIA RTX 4090 (24GB VRAM) consistently hit Out of Memory errors when attempting to train at desired configurations:
+Training on an NVIDIA RTX 5090 (32GB VRAM) consistently hit Out of Memory errors when attempting to train at desired configurations:
 - Resolution: 544px or higher
 - Batch size: 12+ 
 - Model dimensions sufficient for high-quality output
@@ -31,13 +31,19 @@ The migration to native TF2/Keras architecture achieved substantial memory reduc
 
 | Configuration | Original TF1 | TF2 Refactor | Improvement |
 |--------------|--------------|--------------|-------------|
-| Max Resolution (BS=16) | 352x352 | 640x640 | 3.3x pixel count |
-| VRAM Usage (320px, BS=16) | ~16GB | ~9.6GB | 40% reduction |
-| VRAM Usage (640px, BS=16) | OOM | ~18GB | Previously impossible |
+| Max Resolution (BS=16) | 412x412 | 704x704 | 2.9x pixel count |
+| VRAM Usage (412px, BS=16) | ~20GB | ~12GB | 40% reduction |
+| VRAM Usage (704px, BS=16) | OOM | ~24GB | Previously impossible |
 
-*Hardware: NVIDIA RTX 4090 (24GB VRAM)*
+*Hardware: NVIDIA RTX 5090 (32GB VRAM)*
 
-The ability to train at 640x640 resolution represented a fundamental shift in what was possible with the available hardware, even though training quality issues prevented these configurations from being practical for production use.
+![VRAM Comparison - TF1 at 412px](screenshots/vram_usage/vram_tf1_352px_bs16.png)
+*Original TF1 implementation at 412x412 resolution, batch size 16*
+
+![VRAM Comparison - TF2 at 704px](screenshots/vram_usage/vram_tf2_704px_bs16.png)
+*TF2 refactor at 704x704 resolution, batch size 16 - nearly 3x the pixel count*
+
+The ability to train at 704x704 resolution represented a fundamental shift in what was possible with the available hardware, even though training quality issues prevented these configurations from being practical for production use.
 
 ### Framework Modernization
 
@@ -91,6 +97,18 @@ Despite achieving numerical stability and correct gradient flow, the refactored 
 - Preview outputs remained flat gray/orange/brown throughout early training
 - Loss values decreased numerically but didn't correlate with visual improvement
 - Decoder output logits exhibited suboptimal range characteristics
+
+**Visual Comparison**
+
+The following screenshots demonstrate the training quality disparity even at very high iteration counts:
+
+![TF1 Baseline at 25,355 iterations](screenshots/training_comparison/tf1_baseline_iter_25355.png)
+*Original TF1 implementation at iteration 25,355 - clear facial features and good reconstruction quality*
+
+![TF2 Refactor at 26,549 iterations](screenshots/training_comparison/tf2_refactor_iter_26549.png)
+*TF2 refactor at iteration 26,549 - visible reconstruction but lower detail and contrast despite similar iteration count*
+
+These preview comparisons illustrate the core challenge: while the TF2 implementation was numerically stable and training progressed (loss decreased), the visual quality and learning speed did not match the original TF1 implementation's characteristics.
 
 **Root Cause Analysis**
 
@@ -354,5 +372,5 @@ This refactoring work is provided for educational and research purposes. Origina
 ---
 
 **Project Timeline:** Late 2023 - May 2024  
-**Hardware:** NVIDIA RTX 4090 (24GB), AMD Ryzen CPU  
+**Hardware:** NVIDIA RTX 5090 (32GB), AMD Ryzen 9950X3D  
 **Development Approach:** Iterative refactoring with systematic debugging and comparative analysis
