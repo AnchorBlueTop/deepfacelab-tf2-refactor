@@ -23,6 +23,223 @@ Training on an NVIDIA RTX 5090 (32GB VRAM) consistently hit Out of Memory errors
 
 The existing TF1-style gradient checkpointing implementation (`memory_saving_gradients.py`) provided no noticeable VRAM savings. The primary motivation for this refactoring was to leverage TensorFlow 2.x's native `tf.recompute_grad` for gradient checkpointing while modernizing the codebase to current TensorFlow practices.
 
+## Understanding the Fundamentals
+
+Before diving into the technical details, it's helpful to understand the core concepts behind DeepFaceLab and deep learning systems in general.
+
+### What is a Neural Network?
+
+A **neural network** is essentially a sophisticated pattern-matching system modeled loosely on how brains work. Instead of following explicit rules (like traditional programming), neural networks *learn* patterns from examples.
+
+Think of it like this: if you wanted to teach a computer to recognize cats, you wouldn't write rules like "if it has pointy ears and whiskers, it's a cat." Instead, you'd show the network thousands of cat pictures, and it would gradually learn the patterns that distinguish cats from dogs, cars, or anything else.
+
+A neural network consists of:
+- **Layers** of artificial "neurons" (just mathematical functions)
+- **Weights** (numbers that get adjusted during learning)
+- **Connections** between layers that transform data
+
+### How DeepFaceLab Works: Face Swapping Explained
+
+**The Core Idea:**
+DeepFaceLab uses a special type of neural network called an **autoencoder** to learn how to represent and reconstruct faces. Here's the process:
+
+1. **Compression (Encoder):** Take a face image and compress it down to a small set of numbers (called a "latent code") that capture the essence of that face - things like pose, expression, lighting, and identity.
+
+2. **Processing (Inter):** The latent code can be manipulated or processed in this compressed form.
+
+3. **Reconstruction (Decoder):** Take that small set of numbers and reconstruct them back into a full face image.
+
+The "magic" of face swapping happens because:
+- You train **two decoders**: one that learned to reconstruct Person A's face, and one that learned Person B's face
+- When you want to swap faces, you take Person A's face, compress it to a latent code, then feed that code into Person B's decoder
+- Person B's decoder reconstructs a face with Person A's expressions/pose but Person B's identity features
+
+**Visual Analogy:**
+Imagine the encoder as someone describing a face to you over the phone (compressed information), and the decoder as you drawing the face based on that description. If you trained a decoder to only know how to draw Person B's face, and someone describes Person A's expression to you, you'd draw Person B making Person A's expression.
+
+### What Are Gradients and Why Do They Matter?
+
+When training a neural network, you need to adjust the weights to make better predictions. But with millions of weights, how do you know which ones to adjust and by how much?
+
+This is where **gradients** come in:
+- A **gradient** is like an arrow that points in the direction of "improvement"
+- It tells you: "if you change this weight by a small amount in this direction, the network's output will get better"
+- The **gradient's magnitude** tells you how sensitive the output is to changes in that weight
+
+**Training Process:**
+1. The network makes a prediction (forward pass)
+2. You calculate how wrong it was (loss)
+3. You compute gradients: "how should each weight change to reduce this error?"
+4. You update all the weights by small steps in the direction of their gradients (backpropagation)
+5. Repeat millions of times until the network gets good
+
+**Why This Project Cared About Gradients:**
+The refactoring project spent significant time debugging gradient flow because:
+- If gradients are too small ("vanishing gradients"), some layers stop learning
+- If gradients are too large ("exploding gradients"), training becomes unstable
+- The weight scaling technique (wscale) directly affects gradient magnitudes
+- Different frameworks (TF1 vs TF2) compute gradients in subtly different ways
+
+### What is VRAM and Why Did It Matter?
+
+**VRAM (Video RAM)** is the memory on your graphics card (GPU). Deep learning training needs massive amounts of memory to store:
+- All the layer activations (intermediate results) during the forward pass
+- All the gradients during the backward pass
+- The model weights themselves
+- Batch of training images
+
+Higher resolution images and larger batch sizes require more VRAM. The RTX 5090 has 32GB VRAM, which sounds like a lot, but:
+- A 704x704 image has 3x more pixels than a 412x412 image
+- Training an autoencoder stores activations for *every layer* of both encoder and decoder
+- Running out of VRAM (Out Of Memory errors) means you can't train at your desired settings
+
+The entire motivation for this refactoring was to reduce VRAM usage so larger, higher-quality models could be trained.
+
+### What is TensorFlow and What Changed Between Versions?
+
+**TensorFlow** is Google's deep learning framework - essentially a library of tools for building and training neural networks.
+
+**TensorFlow 1.x Approach (what OG DFL used):**
+- Build a static "computation graph" upfront (like drawing a flowchart)
+- Run that graph in a "session" by feeding data through it
+- More explicit control but more complex code
+
+**TensorFlow 2.x Approach (what the refactor targeted):**
+- "Eager execution" - operations run immediately, like normal Python
+- Keras API provides simpler, more intuitive layer/model classes
+- Graph compilation happens automatically when needed
+- More user-friendly but less explicit control
+
+The refactoring challenge was that **OG DFL's training behavior was tightly coupled to TF1's specific way of building graphs**. Even though the math was identical, TF2's different execution model produced different training dynamics.
+
+### Understanding DeepFaceLab's Architecture
+
+Before diving into the refactoring challenges, it's important to understand the core architecture:
+
+**Autoencoder-Based Face Swapping**
+- **Encoder:** Compresses input face images into lower-dimensional latent representations (latent codes)
+- **Inter (Intermediate):** Processes and manipulates the latent space
+- **Decoder:** Reconstructs face images from latent codes
+
+**Two Training Modes:**
+- `df` mode: Separate decoders for source and destination faces
+- `liae` mode: Shared decoder with separate intermediate blocks for identity disentanglement
+
+**Face Swapping Mechanism:** Feed source face's latent code into destination's decoder (or vice versa), leveraging the learned latent space to generate realistic face transfers.
+
+This architecture's success heavily depends on stable training dynamics and proper variance propagation through the network - challenges that became central to the refactoring effort.
+
+## Understanding Equalized Learning Rate (Weight Scaling)
+
+One of the most critical components of the original DFL implementation was its use of **equalized learning rate** (also known as weight scaling or "wscale"), a technique popularized by Progressive GAN research. Understanding this technique is essential to appreciating both the refactoring challenges and the learning outcomes from this project.
+
+### The Theory
+
+Equalized learning rate addresses a fundamental problem in deep neural network training: different layers can have vastly different effective learning rates due to variations in their parameter initialization scales.
+
+**Standard Initialization Problem:**
+- Typical initialization schemes (He, Xavier) scale initial weights based on fan-in: `W ~ N(0, std)` where `std = gain / sqrt(fan_in)`
+- Layers with different fan-in values start with different weight magnitudes
+- During training, gradient updates have different relative impacts on different layers
+- Some layers may dominate learning while others lag behind
+
+**Weight Scaling Solution:**
+1. Initialize ALL weights from standard normal distribution: `W ~ N(0, 1.0)`
+2. Calculate runtime scale factor: `scale = gain / sqrt(fan_in)`
+3. Apply scaling during forward pass: `output = conv(input, W * scale)`
+4. Never modify the stored weights by the scale factor
+
+**Key Benefits:**
+- All layers have the same magnitude gradients relative to their weights
+- More balanced learning dynamics across the network
+- Better stability during training, especially for deeper networks
+- Original DFL relied heavily on this for its fast initial convergence
+
+### Original DFL TF1 Implementation
+
+In the original DeepFaceLab TF1 codebase:
+
+```python
+class Conv2D(LayerBase):  # TF1 style
+    def build_weights(self):
+        # Initialize from N(0,1) if use_wscale is True
+        self.weight = tf.get_variable(..., initializer=tf.random_normal(0, 1.0))
+        
+        if self.use_wscale:
+            fan_in = kernel_size * kernel_size * in_channels
+            he_std = gain / np.sqrt(fan_in)
+            self.wscale = tf.constant(he_std)  # Store as constant
+    
+    def forward(self, x):
+        weight = self.weight
+        if self.use_wscale:
+            weight = weight * self.wscale  # Runtime scaling
+        return tf.nn.conv2d(x, weight, ...)
+```
+
+Crucially, in TF1's graph construction:
+- The multiplication `weight * self.wscale` creates a distinct graph operation
+- The scaled weight tensor flows into `tf.nn.conv2d`
+- TF1's static graph construction and specific graph op linking produced stable behavior
+- The decoder output typically had `tf.nn.sigmoid` applied **within the Decoder's forward method**, naturally producing [0,1] range outputs
+
+### TF2 Keras Subclassing Challenges
+
+The refactored TF2 implementation attempted to replicate this:
+
+```python
+class WScaleConv2D(tf.keras.layers.Conv2D):  # TF2 Keras style
+    def __init__(self, filters, kernel_size, gain=math.sqrt(2.0), **kwargs):
+        super().__init__(
+            filters=filters,
+            kernel_size=kernel_size,
+            kernel_initializer=RandomNormal(mean=0.0, stddev=1.0),
+            bias_initializer=Zeros(),
+            **kwargs
+        )
+        self.gain = gain
+        self.runtime_scale = None
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        fan_in = np.prod(self.kernel.shape[:-1])
+        self.runtime_scale = self.gain * tf.math.rsqrt(tf.cast(fan_in, tf.float32))
+
+    def call(self, inputs):
+        scaled_kernel = self.kernel * self.runtime_scale
+        # Replicate Conv2D's internal logic with scaled kernel
+        outputs = tf.nn.conv2d(inputs, scaled_kernel, self.strides, ...)
+        if self.use_bias:
+            outputs = tf.nn.bias_add(outputs, self.bias, ...)
+        if self.activation is not None:
+            outputs = self.activation(outputs)
+        return outputs
+```
+
+**Why This Was Challenging:**
+
+1. **Keras Subclassing Overhead:** Subclassing `tf.keras.layers.Conv2D` meant inheriting its internal variable management, which interacts with TF2's graph compilation differently than manual TF1 graph construction
+
+2. **Variance Propagation Issues:** Stacking 5-7 WScaleConv2D layers in the Encoder led to progressive variance decay:
+   - Input std ≈ 1.0 → Output std ≈ 0.2-0.4 (target: ~1.0)
+   - Even with `gain=sqrt(2.0)` (appropriate for ReLU-family activations)
+   - Adding Pixel Normalization worsened this to std ≈ 0.004
+
+3. **Decoder Output Range:** Unlike OG DFL where decoder outputs naturally stayed in [0,1] range (as if post-sigmoid), the TF2 refactor's decoder logits exhibited:
+   - Too constrained: [-0.4, 0.8] with low gain → poor contrast after sigmoid
+   - Exploding: thousands with high gain → saturation and noise
+   - Attempts to tune output layer gain (0.1, 1.0, sqrt(2.0), 2.0) all failed
+
+4. **Subtle Implementation Differences:** The way TF2/Keras compiles custom layers into graph operations appears to create subtly different execution paths compared to TF1's manual graph construction, affecting training dynamics in ways that are numerically stable but behaviorally distinct.
+
+### Learning Outcome
+
+This challenge provided deep insight into:
+- How initialization and scaling affect gradient flow through networks
+- The importance of variance preservation across layers
+- Why "mathematically equivalent" implementations can exhibit different training behavior
+- Framework-specific internals that impact training dynamics beyond just numerical correctness
+
 ## Technical Achievements
 
 ### VRAM Optimization Results
@@ -229,16 +446,36 @@ This fundamental difference in Decoder output characteristics directly explained
      * Fixed distribution strategy integration conflicts
      * Debugged numerical stability issues (NaNs, gradient explosion)
 
-4. **Analysis Phase (May 2025):** 
-   - Comparative benchmarking with original TF1 implementation
-   - Instrumentation of both codebases to identify behavioral differences
-   - Detailed variance propagation analysis through network layers
-   - Documentation of findings and training quality disparities
+4. **Analysis & Extensive Tuning Phase (Late April - May 2025):** 
+   - Comparative benchmarking with original TF1 implementation revealed quality gap
+   - Instrumentation of both codebases to identify behavioral differences:
+     * Added `tf.print` statements to track activation ranges throughout encoder/decoder
+     * Monitored variance propagation at each layer boundary
+     * Logged decoder output logit distributions pre- and post-sigmoid
+   - Attempted numerous fixes for variance decay:
+     * Experimented with different gain values (0.1, 1.0, sqrt(2.0), 2.0)
+     * Toggled Pixel Normalization on/off in encoder
+     * Tried alternative normalization techniques (batch norm, instance norm)
+     * Adjusted dense layer dimensions in Inter block
+     * Modified residual block structures
+   - Tested decoder output layer configurations:
+     * Standard Keras Conv2D vs WScaleConv2D for final layers
+     * Different activation functions (tanh, linear, sigmoid at various stages)
+     * Explicit sigmoid placement (within decoder vs. in loss calculation)
+   - Profiled both implementations to rule out numerical instability
+   - Documentation of findings and persistent training quality disparities
 
-5. **Decision Point (May 2025):** 
-   - Pivot to enhancing original TF1 codebase after achieving VRAM goals but encountering training quality challenges
-   - Focus shifted to FP16 implementation and quality-of-life improvements in proven-stable TF1 version
-   - TF2 refactor retained as successful technical demonstration and learning experience
+5. **Decision Point (June 2025):** 
+   - After 2-3 weeks of intensive debugging and tuning attempts, recognized that achieving training quality parity would require disproportionate time investment
+   - Core issue: The interaction between Keras subclassing, TF2 graph compilation, and wscale implementation created subtle behavioral differences that were difficult to isolate and correct
+   - VRAM optimization goal was achieved (60% reduction), validating the technical approach
+   - Training quality gap, while frustrating, provided valuable learning about deep learning framework internals
+   - **Strategic pivot:** Focus efforts on optimizing proven-stable OG DFL TF1 codebase:
+     * Implementing robust FP16 mixed-precision training for additional VRAM savings
+     * Enhancing XSeg workflow for better mask quality
+     * Improving merger quality-of-life features and preview generation
+     * Leveraging new hardware (RTX 5090, 32GB) with stable TF1 for higher-resolution training
+   - TF2 refactor retained as successful technical demonstration, comprehensive learning experience, and portfolio piece
 
 ### Strategic Pivot Rationale
 
@@ -391,6 +628,211 @@ Run the training batch file:
 
 The batch file will launch the training script and present interactive prompts for model configuration including resolution, architecture type, loss functions, batch size, and other training parameters. Configuration options are maintained from the original DFL implementation.
 
+## Systematic Debugging Methodology
+
+This project required developing and applying systematic approaches to debug complex deep learning systems. The methodology evolved through necessity:
+
+### Component Isolation Strategy
+
+1. **Layer-by-Layer Verification**
+   - Built test harnesses for individual layers (Conv2D, Dense, Upscale, Downscale)
+   - Created minimal reproducible examples with known input/output pairs
+   - Compared TF2 layer outputs against OG TF1 equivalents with identical inputs
+   - Verified both forward pass outputs and gradient computations
+
+2. **Incremental Integration Testing**
+   - Started with simplest architecture (single encoder downscale layer)
+   - Progressively added complexity: residual blocks, full encoder, inter, decoder
+   - Validated each addition by comparing activation statistics with OG DFL
+   - Identified where variance propagation first diverged from expected behavior
+
+### Instrumentation Techniques
+
+**TensorFlow Debugging Tools:**
+```python
+# Variance monitoring
+encoded = self.encoder(inputs)
+encoded = tf.debugging.check_numerics(encoded, "Encoder output")
+encoded = tf.print("Encoder std:", tf.math.reduce_std(encoded), output_stream=sys.stdout)
+
+# Range verification
+logits = self.decoder(latent_code)
+tf.print("Logits - min:", tf.reduce_min(logits), "max:", tf.reduce_max(logits), "mean:", tf.reduce_mean(logits))
+```
+
+**Comparative Analysis:**
+- Instrumented both TF1 and TF2 implementations with identical debug outputs
+- Ran both versions with same random seeds and input data
+- Compared activation ranges, variance, and gradient magnitudes at each layer
+- Identified Decoder output range as critical divergence point
+
+**Profiling:**
+- Used `cProfile` and `tf.profiler` to identify performance bottlenecks
+- Discovered CPU-bound data pipeline was limiting despite GPU optimizations
+- Found mask generation (blur/dilate) consumed significant time
+
+### Hypothesis-Driven Debugging
+
+**Variance Collapse Investigation:**
+1. **Hypothesis:** Pixel Normalization was causing variance decay
+   - **Test:** Disabled pixel norm, monitored encoder output std
+   - **Result:** Std improved from 0.004 to 0.2-0.4, but still below target of ~1.0
+   - **Conclusion:** Pixel norm was a contributing factor but not the root cause
+
+2. **Hypothesis:** Gain parameter needed tuning for TF2/Keras context
+   - **Test:** Experimented with gain values from 0.1 to 2.0
+   - **Result:** No gain value produced both stable variance AND good output range
+   - **Conclusion:** Issue was more fundamental than parameter tuning
+
+3. **Hypothesis:** TF2 graph compilation of WScale layers behaved differently
+   - **Test:** Switched to standard Keras Conv2D (no wscale)
+   - **Result:** More stable training but much slower visual convergence
+   - **Conclusion:** Wscale was essential for OG DFL's training speed
+
+**Decoder Output Investigation:**
+1. **Hypothesis:** Missing sigmoid activation in decoder
+   - **Test:** Added explicit sigmoid in decoder forward method
+   - **Result:** Training diverged immediately (double sigmoid effect)
+   - **Conclusion:** Loss calculation was already applying sigmoid
+
+2. **Hypothesis:** Final Conv2D layer needed different initialization
+   - **Test:** Used standard Keras Conv2D with default init for output layers
+   - **Result:** Better output range but lost wscale benefits
+   - **Conclusion:** Trade-off between output stability and training dynamics
+
+### Documentation and Version Control Practices
+
+- Maintained detailed change logs of each experimental modification
+- Used Git branches for major experimental directions
+- Documented negative results as thoroughly as positive ones
+- Created comparison matrices of different configuration attempts
+- Preserved instrumented versions of both TF1 and TF2 for future reference
+
+### Key Debugging Insights
+
+1. **Never Assume Equivalence:** "Mathematically equivalent" implementations can behave differently in practice due to framework internals
+
+2. **Instrument Early:** Add debugging outputs from the start rather than retrofitting them when problems emerge
+
+3. **Comparative Baselines Essential:** Having a working reference implementation (OG TF1) was invaluable for identifying where behavior diverged
+
+4. **Document Everything:** Especially negative results - knowing what doesn't work is as valuable as knowing what does
+
+5. **Know When to Pivot:** After exhausting reasonable debugging approaches, recognizing diminishing returns is important
+
+## Key Technical Learnings from This Project
+
+This refactoring effort provided deep insights into deep learning systems that extend far beyond framework-specific APIs:
+
+### 1. Understanding Gradient Computation and Backpropagation
+
+**Before This Project:**
+- Conceptual understanding of backpropagation from academic courses
+- Used automatic differentiation as a "black box" tool
+- Focused on loss values and convergence curves
+
+**After This Project:**
+- **Deep understanding of gradient flow:** How gradients propagate through custom layers, how scaling factors affect gradient magnitudes, why some layers receive larger updates than others
+- **Variance preservation importance:** Learned that maintaining ~unit variance through the network isn't just good practice - it's critical for stable training
+- **The role of initialization:** Understood viscerally why He/Xavier initialization matters, and how equalized learning rate (wscale) provides an alternative approach
+- **Gradient clipping mechanics:** Implemented and understood why gradient clipping by norm prevents exploding gradients in practice
+
+**Concrete Example:**
+When the encoder output variance collapsed to 0.004, I learned that:
+- Low variance → small gradients during backprop → slow learning in early layers
+- This cascades: encoder learns slowly → latent codes don't evolve → decoder has nothing useful to work with
+- Solution requires addressing the full propagation chain, not just individual layer tuning
+
+### 2. Framework Internals: TF1 vs TF2
+
+**TensorFlow 1.x Graph Construction:**
+- Static computation graph defined upfront
+- Manual session management and variable scoping
+- Explicit placeholder→operation→session.run() pipeline
+- Custom layers: `build_weights()` creates variables in graph, `forward()` defines ops
+- **Key insight:** Graph construction order and op linking can affect execution in subtle ways
+
+**TensorFlow 2.x / Keras Paradigm:**
+- Eager execution by default, graph compilation via `@tf.function`
+- Automatic differentiation with `GradientTape`
+- Keras layers: `build()` for weight creation, `call()` for computation
+- Subclassing introduces framework-managed variable tracking
+- **Key insight:** Keras's internal variable management interacts with custom scaling logic in ways that differ from manual TF1 graph construction
+
+**Critical Difference Discovered:**
+In TF1, doing `weight * scale_constant` in a layer's forward method creates a specific graph op that flows into `tf.nn.conv2d` in a certain way. In TF2/Keras, subclassing `Conv2D` and modifying `self.kernel * self.runtime_scale` in `call()` goes through Keras's internal call stack, affecting how the operation is compiled by `@tf.function`. This subtle difference impacted training dynamics.
+
+### 3. Why "Mathematically Equivalent" ≠ "Behaviorally Equivalent"
+
+One of the most important lessons:
+
+**Numerical Correctness is Necessary But Not Sufficient**
+- Both implementations computed correct gradients (verified)
+- Loss functions matched exactly
+- Forward pass outputs were numerically stable
+- Yet training dynamics diverged significantly
+
+**Factors Beyond Math:**
+- **Operation ordering:** The sequence in which ops execute can affect floating-point precision accumulation
+- **Graph compilation strategies:** How `@tf.function` compiles custom layers affects performance and behavior
+- **Memory layout:** TF1 vs TF2 may layout tensors in memory differently, affecting cache hits and parallel execution
+- **Framework internals:** How Keras manages variables, applies regularization, and tracks updates differs from manual TF1 approaches
+
+**Real-World Implication:**
+A "perfect" refactor on paper (same architecture, same math, same hyperparameters) can still fail in practice due to framework-level differences. This explains why many ML frameworks have version-specific quirks and why reproducibility across frameworks is challenging.
+
+### 4. The Importance of Training Dynamics
+
+**What I Learned:**
+Training neural networks isn't just about reaching a minimum - it's about *how* you traverse the loss landscape:
+
+- **Convergence speed matters:** OG DFL showed recognizable faces within 500-1000 iterations. TF2 refactor took 10x longer. For researchers/users, this is the difference between usable and unusable
+- **Optimization path matters:** Two implementations can reach similar final losses but via different paths, resulting in different learned features
+- **Early training is critical:** The first few hundred iterations set the "tone" for what features the network learns. Poor early dynamics can lead to local minima that are hard to escape
+- **Empirical tuning is cumulative:** OG DFL's training behavior resulted from years of community tuning. Replicating this isn't just about copying hyperparameters - the entire system interaction matters
+
+### 5. Software Engineering in ML Context
+
+**Dependency Injection Pattern:**
+- Originally seemed like unnecessary abstraction
+- Proved invaluable for rapid experimentation (swapping WScaleConv2D ↔ standard Conv2D)
+- Enabled testing hypotheses quickly without deep code changes
+- **Lesson:** ML code benefits from traditional software engineering patterns, even though it's "just research code"
+
+**Testing and Validation:**
+- Unit tests for individual layers were essential
+- Integration tests with known input/output pairs caught subtle bugs
+- **Lesson:** ML debugging is harder than traditional debugging because correct execution doesn't guarantee correct learning
+
+**Version Control Discipline:**
+- Branching strategies for experimental directions
+- Detailed commit messages documenting hypothesis being tested
+- **Lesson:** Treat ML experiments like any other software development - document, version, and track changes systematically
+
+### 6. Performance Optimization is Multi-Dimensional
+
+Achieved 60% VRAM reduction and 2-3x faster GPU step time, yet:
+- Total iteration time barely improved (CPU-bound data pipeline)
+- Gradient checkpointing failed to provide VRAM benefits despite implementation effort
+- **Lesson:** Optimize the bottleneck, not what's easy to optimize. Profiling is essential.
+
+### 7. Knowing When to Pivot
+
+Perhaps the most valuable meta-lesson:
+- After 2-3 weeks of intensive debugging with diminishing returns, recognized that perfect parity might not be achievable within reasonable time
+- The refactoring achieved its primary goal (VRAM reduction) and demonstrated technical competence
+- Shifting focus to FP16 optimization of proven-stable OG DFL was the practical choice
+- **Lesson:** Technical projects need clear success criteria and exit strategies. Not every problem needs to be solved completely.
+
+### 8. Deep Learning is Still a Young Field
+
+This experience reinforced that:
+- Despite mature APIs, deep learning frameworks still have rough edges
+- Training dynamics are often poorly understood theoretically
+- Empirical tuning still dominates over principled approaches
+- "Best practices" may be framework-specific or even version-specific
+- There's still much to learn about why neural networks train the way they do
+
 ## Lessons Learned
 
 1. **Framework Migration Complexity:** Even mathematically equivalent implementations can exhibit different training dynamics due to subtle differences in operation ordering, variable initialization, or graph construction.
@@ -432,7 +874,7 @@ Original DeepFaceLab: Copyright (C) 2018-2020 Ivan Petrov, Petr Yaroshenko, and 
 
 ---
 
-**Project Timeline:** February 2025 - May 2025  
-**AI Assistance:** Google Gemini 2.5 Pro (March-April 2025)  
+**Project Timeline:** February 2025 - June 2025  
+**AI Assistance:** Google Gemini 2.5 Pro (March-May 2025)  
 **Hardware:** NVIDIA RTX 5090 (32GB), AMD Ryzen 9950X3D  
 **Development Approach:** Iterative refactoring with systematic debugging and comparative analysis
