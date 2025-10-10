@@ -4,7 +4,7 @@ A comprehensive refactoring of the DeepFaceLab training pipeline from TensorFlow
 
 ## Project Status
 
-**Achieved:** 60% VRAM reduction, enabling 3x resolution increase (412x412 → 704x704 at batch size 16)
+**Achieved:** 60% VRAM reduction, enabling 3x resolution increase (416x416 → 704x704 at batch size 16)
 
 **Challenge:** Training quality did not achieve parity with original TF1 implementation despite numerical stability
 
