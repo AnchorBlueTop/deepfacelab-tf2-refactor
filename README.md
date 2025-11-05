@@ -875,6 +875,5 @@ Original DeepFaceLab: Copyright (C) 2018-2020 Ivan Petrov, Petr Yaroshenko, and 
 ---
 
 **Project Timeline:** February 2025 - June 2025  
-**AI Assistance:** Google Gemini 2.5 Pro (March-May 2025)  
 **Hardware:** NVIDIA RTX 5090 (32GB), AMD Ryzen 9950X3D  
 **Development Approach:** Iterative refactoring with systematic debugging and comparative analysis
